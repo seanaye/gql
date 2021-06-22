@@ -56,3 +56,57 @@ export function GraphQLHTTP<Req extends Request = Request, Ctx extends { request
     }
   }
 }
+
+
+/**
+ * Create a new GraphQL HTTP middleware with schema, context etc
+ * @param {GraphQLOptions} options
+ *
+ * @example
+ * ```ts
+ * const graphql = await GraphQLHTTP({ schema })
+ *
+ * for await (const req of s) graphql(req)
+ * ```
+ */
+export function GraphQLDeploy<Req extends Request = Request, Ctx extends { request: Req } = { request: Req }>(
+  options: GraphQLOptions<Ctx, Req>
+) {
+  return async (request: Req): Promise<Response> => {
+    if (options.graphiql && request.method === 'GET' && request.headers.get('Accept')?.includes('text/html')) {
+      const { renderPlaygroundPage } = await import('./graphiql/render.ts')
+      const playground = renderPlaygroundPage({ endpoint: '/graphql' })
+
+      return new Response(playground, {
+        headers: new Headers({
+          'Content-Type': 'text/html'
+        }),
+      })
+    } else {
+      if (!['PUT', 'POST', 'PATCH'].includes(request.method)) {
+        return new Response( 'Method Not Allowed', {
+          status: 405,
+        })
+      } else {
+        const body = await readAll(request.body)
+
+        try {
+          const result = await runHttpQuery<Req, Ctx>(JSON.parse(dec.decode(body)), options, { request })
+
+          return new Response(
+            JSON.stringify(result, null, 2),
+            {
+              status: 200,
+              headers: new Headers({
+                'Content-Type': 'application/json'
+              })
+            }
+          )
+        } catch (e) {
+          console.error(e)
+          return new Response('Malformed request body', { status: 400 })
+        }
+      }
+    }
+  }
+}
